@@ -1,0 +1,5 @@
+model:
+  provider: "nvidia"
+  default: "minimaxai/minimax-m2.7"
+approvals:
+  destructive_slash_confirm: false
