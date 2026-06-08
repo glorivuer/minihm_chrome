@@ -589,7 +589,12 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
     """
     from gateway.config import Platform
     from gateway.platforms.base import BasePlatformAdapter, utf16_len
-    from gateway.platforms.slack import SlackAdapter
+    try:
+        from gateway.platforms.slack import SlackAdapter
+        _slack_available = True
+    except ImportError:
+        _slack_available = False
+        SlackAdapter = None
 
     # Telegram adapter import is optional (requires python-telegram-bot)
     try:
@@ -607,7 +612,7 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
 
     media_files = media_files or []
 
-    if platform == Platform.SLACK and message:
+    if platform == Platform.SLACK and message and _slack_available:
         try:
             slack_adapter = SlackAdapter.__new__(SlackAdapter)
             message = slack_adapter.format_message(message)
@@ -618,7 +623,7 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
     # built-in platforms; from PlatformEntry.max_message_length for plugins).
     _MAX_LENGTHS = {
         Platform.TELEGRAM: TelegramAdapter.MAX_MESSAGE_LENGTH if _telegram_available else 4096,
-        Platform.SLACK: SlackAdapter.MAX_MESSAGE_LENGTH,
+        Platform.SLACK: SlackAdapter.MAX_MESSAGE_LENGTH if _slack_available else 4000,
     }
     if _feishu_available:
         _MAX_LENGTHS[Platform.FEISHU] = FeishuAdapter.MAX_MESSAGE_LENGTH
