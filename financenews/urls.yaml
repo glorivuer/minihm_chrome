@@ -1,0 +1,9 @@
+sites:
+  - name: reuters_bus
+    url: https://www.reuters.com/business/
+  - name: reuters_mkt
+    url: https://www.reuters.com/markets/
+  - name: ft_mkt
+    url: https://www.ft.com/markets
+  - name: bbc_bus
+    url: https://www.bbc.com/business

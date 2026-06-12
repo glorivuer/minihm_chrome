@@ -1,0 +1,91 @@
+{
+  "jobs": [
+    {
+      "id": "00a96b63015c",
+      "name": "Finance News Scraper",
+      "prompt": "Read the state file /home/remora/financenews/state.json and check the directory /home/remora/financenews/ (specifically today's daily directory, e.g. /home/remora/financenews/{date}) for new news markdown files (.md) created in the last 65 minutes.\n\nPerform the following tasks:\n1. Check the 'last_run' timestamp in state.json. If the current time is during scraper operating hours (8:00 - 23:00) and 'last_run' is older than 2 hours, output a warning: '\u26a0\ufe0f Warning: Scraper heartbeat lost. Last successful run was at {last_run}.'\n2. Search for any new .md files in the daily subdirectory (e.g. YYMMDD format) created in the last 65 minutes.\n3. If new .md files are found:\n   a) Read their content.\n   b) Invoke the '@finanalyst' skill in hourly analysis mode to analyze their content.\n   c) Save the resulting markdown report to a file at /home/remora/financenews/analysis/{date}/hourly_analysis_{hour}.md (where {date} is in YYMMDD format and {hour} is the Shanghai timezone hour in HH format).\n   d) Output the report to the user.\n4. If no new .md files are found:\n   a) Respond with exactly '[SILENT]' to suppress Telegram message delivery.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "run_hourly_scraper.sh",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "2 0-15 * * *",
+        "display": "2 0-15 * * *"
+      },
+      "schedule_display": "2 0-15 * * *",
+      "repeat": {
+        "times": -1,
+        "completed": 32
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-09T15:43:54.191007+00:00",
+      "next_run_at": "2026-06-13T00:02:00+00:00",
+      "last_run_at": "2026-06-12T15:02:49.013859+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "telegram",
+        "chat_id": "550914711",
+        "chat_name": "Glorivuer Chou",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": "/home/remora/financenews",
+      "profile": null
+    },
+    {
+      "id": "00b87c22026d",
+      "name": "Finance News Morning Briefing",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "run_morning_briefing.sh",
+      "no_agent": true,
+      "context_from": null,
+      "paused_at": null,
+      "paused_reason": null,
+      "last_run_at": "2026-06-12T00:30:32.290534+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "enabled_toolsets": null,
+      "profile": null,
+      "prompt": "Perform the daily morning briefing synthesis:\n1. Locate and read all the hourly analysis markdown files (.md) generated under /home/remora/financenews/analysis/ during the past 24 hours (specifically checking yesterday's and today's directories, e.g. YYMMDD format).\n2. Invoke the '@finanalyst' skill in daily morning report synthesis mode (Option B layout) on these hourly reports to generate a comprehensive Daily Morning Briefing.\n3. Save the briefing to a file at /home/remora/financenews/analysis/{date}/morning_report_0830.md (where {date} is today's Shanghai date in format YYMMDD).\n4. Output the briefing to the user.",
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 0 * * *",
+        "display": "30 0 * * *"
+      },
+      "schedule_display": "30 0 * * *",
+      "repeat": {
+        "times": -1,
+        "completed": 3
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "created_at": "2026-06-10T14:58:42.078725+00:00",
+      "next_run_at": "2026-06-13T00:30:00+00:00",
+      "origin": {
+        "platform": "telegram",
+        "chat_id": "550914711",
+        "chat_name": "Glorivuer Chou",
+        "thread_id": null
+      },
+      "workdir": "/home/remora/financenews"
+    }
+  ],
+  "updated_at": "2026-06-12T15:02:49.014394+00:00"
+}

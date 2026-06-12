@@ -147,3 +147,14 @@ RELEASE_v*.md
 /audio_cache/
 /image_cache/
 /cache/
+
+# MiniHermes custom additions
+/processes.json
+/*_models_cache.json
+/memories/
+/cron/output/
+/sessions/
+.clean_shutdown
+skills/.bundled_manifest
+skills/.usage.json
+

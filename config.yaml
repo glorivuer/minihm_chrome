@@ -1,5 +1,5 @@
 model:
-  provider: "nvidia"
-  default: "minimaxai/minimax-m2.7"
+  provider: "gemini"
+  default: "gemini-3-flash-preview"
 approvals:
   destructive_slash_confirm: false
