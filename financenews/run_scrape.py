@@ -8,6 +8,7 @@ import hashlib
 import sys
 import socket
 import os
+import re
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import yaml
@@ -45,6 +46,108 @@ def is_port_open(port):
 
 def compute_hash(content):
     return hashlib.sha256(content.encode('utf-8', errors='ignore')).hexdigest()[:16]
+
+def is_date_or_time_line(line):
+    line_lower = line.lower()
+    # Matches relative times like "12 mins ago", "1 hour ago", "5 hours ago", "17 hours ago", "yesterday"
+    if re.search(r'\b\d+\s+(min|minute|hour|day|sec|second)s?\s+ago\b', line_lower):
+        return True
+    if re.search(r'\b\d+\s+(min|hr|h|m|d)\b', line_lower): # e.g. "12m", "3h"
+        return True
+    if "mins ago" in line_lower or "hours ago" in line_lower or "days ago" in line_lower:
+        return True
+    
+    # Matches dates like "June 12, 2026", "· June 12, 2026 ·", "12 June 2026"
+    months_pattern = r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)'
+    date_pattern = r'^\s*·?\s*(?:' + months_pattern + r'\s+\d{1,2}(?:\s*,\s*\d{4})?|\d{1,2}\s+' + months_pattern + r'(?:\s+\d{4})?|\d{4}-\d{2}-\d{2})\s*·?\s*$'
+    if re.search(date_pattern, line_lower):
+        return True
+        
+    return False
+
+def process_and_deduplicate_lines(raw_text, state, now_cst):
+    """
+    Cleans the raw text line-by-line, filters out boilerplate, dates, relative times,
+    and returns deduplicated lines based on seen hashes in state.
+    """
+    lines = []
+    new_hashes_added = 0
+    seen_stories = state.setdefault("seen_stories", {})
+    
+    # Common boilerplate phrases to ignore
+    boilerplate_blacklist = [
+        "all rights reserved",
+        "terms & conditions",
+        "terms of use",
+        "privacy policy",
+        "cookie policy",
+        "manage cookies",
+        "individual subscriptions",
+        "professional subscriptions",
+        "republish holding",
+        "advertise with us",
+        "all quotes delayed",
+        "skip to main content",
+        "skip to navigation",
+        "accessibility help",
+        "sign in",
+        "subscribe",
+        "load more",
+        "follow us",
+        "download the app",
+        "opens new tab",
+        "contact us",
+        "about us"
+    ]
+    
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+            
+        # Basic character length filter (ignore lines < 20 characters)
+        if len(line) < 20:
+            continue
+            
+        # Ignore lines matching blacklisted terms (case-insensitive)
+        line_lower = line.lower()
+        if any(term in line_lower for term in boilerplate_blacklist):
+            continue
+            
+        # Ignore lines that are just dates or relative times
+        if is_date_or_time_line(line):
+            continue
+            
+        # Compute SHA256 of the line
+        line_hash = hashlib.sha256(line.encode('utf-8', errors='ignore')).hexdigest()[:16]
+        
+        # Check against seen_stories
+        if line_hash in seen_stories:
+            continue
+            
+        # Mark as seen
+        seen_stories[line_hash] = now_cst.isoformat()
+        lines.append(line)
+        new_hashes_added += 1
+        
+    return lines, new_hashes_added
+
+def clean_old_hashes(state, now_cst):
+    seen_stories = state.setdefault("seen_stories", {})
+    expiration_limit = now_cst - timedelta(hours=25)
+    
+    to_delete = []
+    for h, ts_str in seen_stories.items():
+        try:
+            ts = datetime.fromisoformat(ts_str)
+            if ts < expiration_limit:
+                to_delete.append(h)
+        except Exception:
+            to_delete.append(h)
+            
+    for h in to_delete:
+        del seen_stories[h]
+
 
 async def get_browser(p):
     """Always use foreground browser on DISPLAY=:10"""
@@ -154,7 +257,58 @@ async def scrape_all():
                 await page.close()
                 continue
             await asyncio.sleep(3)  # Wait for JS rendering
-            content = await page.inner_text("body")
+            
+            # DOM cleaning via page.evaluate
+            clean_js = """
+            () => {
+                const selectorsToRemove = [
+                    'header', 'footer', 'nav', 'aside', 'noscript', 'script', 'style', 'iframe', 'svg',
+                    '[role="banner"]', '[role="navigation"]', '[role="contentinfo"]',
+                    '#cookie-consent', '.ad-wrapper', '.cookie-consent', '.advertisement',
+                    '.newsletter-signup', '.social-share', '.related-content', '.trending-stories',
+                    '.sidebar', '#sidebar', '.widget', '#widget', '.masthead', '.nav-menu',
+                    '.ft-cookie-consent', '.reuters-cookie-consent', '.privacy-policy',
+                    '#privacy-banner', '.ad-banner', '.paywall-promo', '.subscribe-promo',
+                    '.o-cookie-message', '.o-header', '.o-footer', '.ft-editorial-notice',
+                    '.bbc-cookie-banner', '#orb-header', '#footer-content'
+                ];
+                
+                const fuzzySelectors = [
+                    '[class*="cookie"]', '[id*="cookie"]', '[class*="consent"]', '[id*="consent"]',
+                    '[class*="ad-wrapper"]', '[class*="advertisement"]', '[id*="advertisement"]',
+                    '[id*="google_ads"]', '[class*="paywall"]', '[class*="subscription"]',
+                    '[class*="newsletter"]', '[class*="social-share"]', '[class*="share-tools"]'
+                ];
+                
+                selectorsToRemove.forEach(sel => {
+                    try { document.querySelectorAll(sel).forEach(el => el.remove()); } catch(e) {}
+                });
+                
+                fuzzySelectors.forEach(sel => {
+                    try {
+                        document.querySelectorAll(sel).forEach(el => {
+                            const isMain = el.tagName.toLowerCase() === 'main' || el.id === 'main' || el.id === 'content' || el.classList.contains('main-content');
+                            if (!isMain) { el.remove(); }
+                        });
+                    } catch(e) {}
+                });
+
+                const mainSelectors = ['main', '#main-content', '#content', '.main-content', 'article'];
+                for (const sel of mainSelectors) {
+                    const el = document.querySelector(sel);
+                    if (el && el.innerText && el.innerText.trim().length > 200) {
+                        return el.innerText;
+                    }
+                }
+                
+                return document.body ? document.body.innerText : '';
+            }
+            """
+            content = await page.evaluate(clean_js)
+            if not content or len(content.strip()) < 100:
+                print(f"[WARN] Cleaned content too short, falling back to raw body inner_text")
+                content = await page.inner_text("body")
+                
             current_hash = compute_hash(content)
         except Exception as e:
             results.append((name, False, str(e)[:80]))
@@ -162,12 +316,24 @@ async def scrape_all():
             await page.close()
             continue
         
-        # Check if content changed
+        # Check if content changed (overall hash)
         last_hash = state["hashes"].get(site_key)
         if last_hash and current_hash == last_hash:
-            print(f"[SKIP] {name}: No new content")
+            print(f"[SKIP] {name}: No new content (overall hash match)")
             skip_count += 1
             results.append((name, True, "No new content"))
+            await page.close()
+            continue
+            
+        # Line-by-line cleaning and deduplication
+        cleaned_lines, new_hashes_added = process_and_deduplicate_lines(content, state, get_shanghai_now())
+        
+        if new_hashes_added == 0:
+            print(f"[SKIP] {name}: No new headlines/stories after line-level deduplication")
+            skip_count += 1
+            results.append((name, True, "No new content"))
+            # Update the page hash so we don't process it again if it hasn't changed
+            state["hashes"][site_key] = current_hash
             await page.close()
             continue
         
@@ -182,17 +348,18 @@ async def scrape_all():
         filepath = daily_dir / filename
         
         title = await page.title()
-        md_content = f"# {title}\n\n## URL\n{url}\n\n## Scraped At\n{get_shanghai_now().strftime('%Y-%m-%d %H:%M:%S')}\n\n## Content\n\n{content[:50000]}\n"
+        md_content = f"# {title}\n\n## URL\n{url}\n\n## Scraped At\n{get_shanghai_now().strftime('%Y-%m-%d %H:%M:%S')}\n\n## Content\n\n" + "\n\n".join(cleaned_lines) + "\n"
         filepath.write_text(md_content, encoding="utf-8")
         
         state["hashes"][site_key] = current_hash
         state["last_run"] = get_shanghai_now().isoformat()
         
-        print(f"[OK] {name}: Saved as {filename} ({len(content)} chars)")
-        results.append((name, True, f"Saved: {filename}"))
+        print(f"[OK] {name}: Saved as {filename} ({new_hashes_added} new lines, {len(md_content)} chars)")
+        results.append((name, True, f"Saved: {filename} ({new_hashes_added} new lines)"))
         new_count += 1
         await page.close()
     
+    clean_old_hashes(state, get_shanghai_now())
     save_state(state)
     
     if browser_launched:
